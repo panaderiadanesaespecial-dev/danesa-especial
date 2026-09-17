@@ -704,6 +704,26 @@ ul,ol{margin:0;padding:0;list-style:none;}
 .arriba:hover{background:var(--cafe-700);transform:translateY(-3px);}
 .arriba svg{width:22px;height:22px;}
 
+/* Aviso de cookies (Google Analytics) */
+.cookies{
+  position:fixed;left:50%;bottom:16px;transform:translateX(-50%) translateY(140%);
+  z-index:115;width:min(720px, calc(100vw - 28px));
+  display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;
+  background:var(--cafe-950);color:#E8DAC4;border:1px solid rgba(227,192,119,.4);
+  border-radius:var(--r-md);padding:16px 20px;box-shadow:var(--sombra-3);
+  transition:transform .45s cubic-bezier(.22,.61,.36,1);
+}
+.cookies.visible{transform:translateX(-50%) translateY(0);}
+.cookies[hidden]{display:none;}
+.cookies p{margin:0;font-size:.88rem;line-height:1.55;flex:1 1 300px;min-width:0;}
+.cookies__acciones{display:flex;gap:10px;flex:0 0 auto;}
+.cookies .btn{padding:10px 20px;font-size:.88rem;}
+@media (max-width:560px){
+  .cookies{padding:14px 16px;}
+  .cookies__acciones{width:100%;}
+  .cookies .btn{flex:1;}
+}
+
 /* Aviso emergente (toast) */
 .toast{
   position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);z-index:120;
@@ -1614,6 +1634,15 @@ ul,ol{margin:0;padding:0;list-style:none;}
   </div>
 </footer>
 
+<!-- Aviso de cookies: la medición solo se activa si la persona acepta -->
+<div class="cookies" id="avisoCookies" role="dialog" aria-live="polite" aria-label="Aviso de cookies" hidden>
+  <p>Usamos cookies de Google Analytics para saber cómo se usa esta página y mejorarla. No recogemos datos que te identifiquen.</p>
+  <div class="cookies__acciones">
+    <button class="btn btn--dorado" id="cookiesAceptar">Aceptar</button>
+    <button class="btn btn--claro" id="cookiesRechazar">Rechazar</button>
+  </div>
+</div>
+
 <!-- Botón volver al inicio -->
 <button class="arriba" id="btnArriba" aria-label="Volver al inicio de la página">
   <svg aria-hidden="true"><use href="#ico-arriba"></use></svg>
@@ -1806,6 +1835,9 @@ ul,ol{margin:0;padding:0;list-style:none;}
     // Número de la cuenta Nequi del negocio (solo dígitos)
     nequi: "3202334831",
 
+    // ID de medición de Google Analytics (deja "" para desactivar la medición)
+    analytics: "G-HPPX6MRDR8",
+
     // Perfiles oficiales en redes sociales
     instagram: "https://www.instagram.com/panaderiadanesaespecial",
     facebook: "https://www.facebook.com/share/18fiLXe1Kk/",
@@ -1895,6 +1927,52 @@ ul,ol{margin:0;padding:0;list-style:none;}
   const pesos = v => "$" + v.toLocaleString("es-CO");
   const precioBase = c => (c.precios ? Math.min.apply(null, c.precios.map(p => p.valor)) : c.precio);
 
+  /* --- D.0 Google Analytics con consentimiento ------------------------
+     La medición NO se activa hasta que la persona acepta el aviso de
+     cookies. Su elección queda guardada en su propio navegador.          */
+  const CLAVE_COOKIES = "danesa_cookies";
+  let gaListo = false;
+
+  function cargarAnalytics() {
+    if (gaListo || !CONFIG.analytics) return;
+    gaListo = true;
+    const s = document.createElement("script");
+    s.async = true;
+    s.src = "https://www.googletagmanager.com/gtag/js?id=" + CONFIG.analytics;
+    document.head.appendChild(s);
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { window.dataLayer.push(arguments); };
+    window.gtag("js", new Date());
+    window.gtag("config", CONFIG.analytics);
+  }
+
+  // Registra una acción en Analytics. Si no hay consentimiento, no hace nada.
+  function medir(evento, datos) {
+    if (typeof window.gtag === "function") window.gtag("event", evento, datos || {});
+  }
+
+  (function consentimiento() {
+    const aviso = document.getElementById("avisoCookies");
+    if (!aviso) return;
+    let elegido = null;
+    try { elegido = localStorage.getItem(CLAVE_COOKIES); } catch (e) {}
+
+    if (elegido === "aceptadas") { cargarAnalytics(); return; }
+    if (elegido === "rechazadas") return;
+
+    aviso.hidden = false;
+    requestAnimationFrame(() => aviso.classList.add("visible"));
+
+    function responder(valor) {
+      try { localStorage.setItem(CLAVE_COOKIES, valor); } catch (e) {}
+      aviso.classList.remove("visible");
+      setTimeout(() => { aviso.hidden = true; }, 500);
+      if (valor === "aceptadas") cargarAnalytics();
+    }
+    document.getElementById("cookiesAceptar").addEventListener("click", () => responder("aceptadas"));
+    document.getElementById("cookiesRechazar").addEventListener("click", () => responder("rechazadas"));
+  })();
+
   /* --- D.1 Imágenes incrustadas -------------------------------------- */
   $$("[data-img]").forEach(el => {
     const clave = el.getAttribute("data-img");
@@ -1963,7 +2041,13 @@ ul,ol{margin:0;padding:0;list-style:none;}
     const btn = e.target.closest("[data-enlace]");
     if (!btn) return;
     e.preventDefault();
-    abrirDestino(btn.getAttribute("data-enlace"), btn.getAttribute("data-mensaje") || "");
+    const clave = btn.getAttribute("data-enlace");
+    const etiqueta = (btn.querySelector("strong") || btn).textContent || "";
+    medir("clic_" + clave, {
+      boton: etiqueta.replace(/\s+/g, " ").trim().slice(0, 50),
+      seccion: (btn.closest("section") || {}).id || "portada"
+    });
+    abrirDestino(clave, btn.getAttribute("data-mensaje") || "");
   });
 
   /* --- D.4 Aviso emergente (toast) ----------------------------------- */
@@ -2197,7 +2281,15 @@ ul,ol{margin:0;padding:0;list-style:none;}
     }
   });
 
-  $("#btnEnviarPedido").addEventListener("click", () => abrirDestino("whatsapp", textoPedido()));
+  $("#btnEnviarPedido").addEventListener("click", () => {
+    medir("pedido_combo", {
+      combo: comboActual ? "Combo " + comboActual.n + " - " + comboActual.titulo : "",
+      cantidad: cantidad,
+      value: valorUnitario() * cantidad,
+      currency: "COP"
+    });
+    abrirDestino("whatsapp", textoPedido());
+  });
 
   // Copia un texto al portapapeles (con alternativa para navegadores antiguos)
   function copiarTexto(texto, mensajeOk, mensajeError) {
@@ -2287,6 +2379,8 @@ ul,ol{margin:0;padding:0;list-style:none;}
       "Mensaje: " + $("#mensaje").value.trim()
     ].join("\n");
 
+    medir("formulario_contacto", { asunto: $("#asunto").value });
+
     if (abrirDestino("whatsapp", texto)) {
       mensajeForm.textContent = "Listo, " + $("#nombre").value.trim() +
         ". Abrimos WhatsApp con tu mensaje escrito: revísalo y dale enviar.";
@@ -2368,6 +2462,7 @@ ul,ol{margin:0;padding:0;list-style:none;}
 
     // La opinión se envía al WhatsApp del negocio
     const comentario = $("#comentario").value.trim();
+    medir("opinion_enviada", { calificacion: calificacion, con_comentario: comentario ? "si" : "no" });
     abrirDestino("whatsapp", [
       "Hola, les dejo mi opinión sobre el pedido:",
       "Calificación: " + calificacion + " de 5 estrellas",
